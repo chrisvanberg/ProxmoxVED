@@ -25,9 +25,10 @@ fetch_and_deploy_gh_release "photon" "komoot/photon" "singlefile" "latest" "/opt
 
 msg_info "Setting up Photon"
 mv /opt/photon/photon /opt/photon/photon.jar
+mkdir -p /opt/photon/dumps
 
 cat <<EOF >/opt/photon/.env
-COUNTRY_CODES=BE
+PHOTON_REGIONS=europe/belgium,africa/northern-africa
 REVERSE_ONLY=true
 PHOTON_LISTEN_IP=0.0.0.0
 PHOTON_LISTEN_PORT=2322
@@ -35,29 +36,40 @@ JAVA_OPTS=-Xmx2G
 EOF
 msg_ok "Set up Photon"
 
-DUMP_URL="https://download1.graphhopper.com/public/photon-dump-planet-1.0-latest.jsonl.zst"
-DUMP_FILE="/opt/photon/photon-dump.jsonl.zst"
-DUMP_MD5_FILE="/opt/photon/photon-dump.md5"
+source /opt/photon/.env
+BASE_URL="https://download1.graphhopper.com/public"
+IFS=',' read -ra REGIONS <<<"$PHOTON_REGIONS"
+DUMP_FILES=()
 
-REMOTE_MD5=$(curl -fsSL "${DUMP_URL}.md5" | awk '{print $1}')
-if [[ -f "$DUMP_FILE" && -f "$DUMP_MD5_FILE" ]] && [[ "$(cat "$DUMP_MD5_FILE")" == "$REMOTE_MD5" ]]; then
-  msg_ok "Photon Data dump already present and up-to-date, skipping download"
-else
-  msg_info "Downloading Photon Data (this will take a while)"
+for region in "${REGIONS[@]}"; do
+  region_name="${region##*/}"
+  dump_url="${BASE_URL}/${region}/photon-dump-${region_name}-1.0-latest.jsonl.zst"
+  dump_file="/opt/photon/dumps/${region_name}.jsonl.zst"
+  md5_file="/opt/photon/dumps/${region_name}.md5"
+  DUMP_FILES+=("$dump_file")
+
+  remote_md5=$(curl -fsSL "${dump_url}.md5" | awk '{print $1}')
+  if [[ -f "$dump_file" && -f "$md5_file" ]] && [[ "$(cat "$md5_file")" == "$remote_md5" ]]; then
+    msg_ok "Dump ${region_name} already up-to-date, skipping"
+    continue
+  fi
+
+  msg_info "Downloading ${region_name} data"
   stop_spinner
   echo ""
-  download_with_progress "$DUMP_URL" "$DUMP_FILE"
-  echo "$REMOTE_MD5" >"$DUMP_MD5_FILE"
-  msg_ok "Downloaded Photon Data"
-fi
+  download_with_progress "$dump_url" "$dump_file"
+  set +o pipefail
+  echo "$remote_md5" >"$md5_file"
+  msg_ok "Downloaded ${region_name} data"
+done
 
 msg_info "Importing Photon Data"
-source /opt/photon/.env
+stop_spinner
+echo ""
 IMPORT_ARGS="-import-file - -data-dir /opt/photon"
-[[ -n "$COUNTRY_CODES" ]] && IMPORT_ARGS="$IMPORT_ARGS -country-codes $COUNTRY_CODES"
 [[ "$REVERSE_ONLY" == "true" ]] && IMPORT_ARGS="$IMPORT_ARGS -reverse-only"
-$STD bash -c "zstd --stdout -d /opt/photon/photon-dump.jsonl.zst | java $JAVA_OPTS -jar /opt/photon/photon.jar import $IMPORT_ARGS"
-rm -f /opt/photon/photon-dump.jsonl.zst
+$STD bash -c "cat ${DUMP_FILES[*]} | zstd --stdout -d | java $JAVA_OPTS -jar /opt/photon/photon.jar import $IMPORT_ARGS"
+rm -rf /opt/photon/dumps
 msg_ok "Imported Photon Data"
 
 msg_info "Creating Data Update Script"
@@ -67,18 +79,29 @@ set -euo pipefail
 
 source /opt/photon/.env
 
-DUMP_URL="https://download1.graphhopper.com/public/photon-dump-planet-1.0-latest.jsonl.zst"
-DUMP_FILE="/opt/photon/photon-dump.jsonl.zst"
-DUMP_MD5_FILE="/opt/photon/photon-dump.md5"
+BASE_URL="https://download1.graphhopper.com/public"
+IFS=',' read -ra REGIONS <<<"$PHOTON_REGIONS"
 
-REMOTE_MD5=$(curl -fsSL "${DUMP_URL}.md5" | awk '{print $1}')
-if [[ -f "$DUMP_FILE" && -f "$DUMP_MD5_FILE" ]] && [[ "$(cat "$DUMP_MD5_FILE")" == "$REMOTE_MD5" ]]; then
-  echo "Photon Data dump already present and up-to-date, skipping download"
-else
-  echo "Downloading latest Photon dump..."
-  curl -fL# -o "$DUMP_FILE" "$DUMP_URL"
-  echo "$REMOTE_MD5" >"$DUMP_MD5_FILE"
-fi
+mkdir -p /opt/photon/dumps
+DUMP_FILES=()
+
+for region in "${REGIONS[@]}"; do
+  region_name="${region##*/}"
+  dump_url="${BASE_URL}/${region}/photon-dump-${region_name}-1.0-latest.jsonl.zst"
+  dump_file="/opt/photon/dumps/${region_name}.jsonl.zst"
+  md5_file="/opt/photon/dumps/${region_name}.md5"
+  DUMP_FILES+=("$dump_file")
+
+  remote_md5=$(curl -fsSL "${dump_url}.md5" | awk '{print $1}')
+  if [[ -f "$dump_file" && -f "$md5_file" ]] && [[ "$(cat "$md5_file")" == "$remote_md5" ]]; then
+    echo "${region_name}: already up-to-date, skipping"
+    continue
+  fi
+
+  echo "Downloading ${region_name}..."
+  curl -fL# -o "$dump_file" "$dump_url"
+  echo "$remote_md5" >"$md5_file"
+done
 
 echo "Stopping Photon service..."
 systemctl stop photon
@@ -87,18 +110,15 @@ echo "Removing old data..."
 rm -rf /opt/photon/photon_data
 
 IMPORT_ARGS="-import-file - -data-dir /opt/photon"
-if [[ -n "${COUNTRY_CODES:-}" ]]; then
-  IMPORT_ARGS="$IMPORT_ARGS -country-codes $COUNTRY_CODES"
-fi
 if [[ "${REVERSE_ONLY:-true}" == "true" ]]; then
   IMPORT_ARGS="$IMPORT_ARGS -reverse-only"
 fi
 
-echo "Importing data with country codes: ${COUNTRY_CODES:-all} (reverse-only: ${REVERSE_ONLY:-true})..."
-zstd --stdout -d /opt/photon/photon-dump.jsonl.zst | \
+echo "Importing data (reverse-only: ${REVERSE_ONLY:-true})..."
+cat "${DUMP_FILES[@]}" | zstd --stdout -d | \
   java ${JAVA_OPTS:--Xmx2G} -jar /opt/photon/photon.jar import $IMPORT_ARGS
 
-rm -f /opt/photon/photon-dump.jsonl.zst
+rm -rf /opt/photon/dumps
 
 echo "Starting Photon service..."
 systemctl start photon
