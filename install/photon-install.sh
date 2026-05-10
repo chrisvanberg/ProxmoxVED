@@ -14,7 +14,9 @@ network_check
 update_os
 
 msg_info "Installing Dependencies"
-$STD apt install -y zstd
+$STD apt install -y \
+  pv \
+  zstd
 msg_ok "Installed Dependencies"
 
 JAVA_VERSION="21" setup_java
