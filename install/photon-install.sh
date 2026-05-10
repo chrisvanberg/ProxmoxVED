@@ -44,6 +44,8 @@ if [[ -f "$DUMP_FILE" && -f "$DUMP_MD5_FILE" ]] && [[ "$(cat "$DUMP_MD5_FILE")" 
   msg_ok "Photon Data dump already present and up-to-date, skipping download"
 else
   msg_info "Downloading Photon Data (this will take a while)"
+  stop_spinner
+  echo ""
   download_with_progress "$DUMP_URL" "$DUMP_FILE"
   echo "$REMOTE_MD5" >"$DUMP_MD5_FILE"
   msg_ok "Downloaded Photon Data"
