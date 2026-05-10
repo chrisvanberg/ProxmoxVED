@@ -1,0 +1,48 @@
+{
+    "name": "Photon",
+    "slug": "photon",
+    "categories": [
+        9
+    ],
+    "date_created": "2026-05-10",
+    "type": "ct",
+    "updateable": true,
+    "privileged": false,
+    "interface_port": 2322,
+    "documentation": "https://github.com/komoot/photon/blob/master/docs/usage.md",
+    "website": "https://photon.komoot.io/",
+    "logo": "https://cdn.jsdelivr.net/gh/selfhst/icons@main/webp/photon.webp",
+    "description": "Photon is an open-source geocoder built for OpenStreetMap data, powered by OpenSearch. It supports forward and reverse geocoding with multi-language search capabilities.",
+    "install_methods": [
+        {
+            "type": "default",
+            "script": "ct/photon.sh",
+            "config_path": "/opt/photon/.env",
+            "resources": {
+                "cpu": 2,
+                "ram": 4096,
+                "hdd": 30,
+                "os": "Debian",
+                "version": "13"
+            }
+        }
+    ],
+    "default_credentials": {
+        "username": null,
+        "password": null
+    },
+    "notes": [
+        {
+            "text": "Edit /opt/photon/.env to change COUNTRY_CODES (comma-separated ISO 3166-1 alpha-2) and REVERSE_ONLY, then run /opt/photon/update-data.sh to re-import.",
+            "type": "info"
+        },
+        {
+            "text": "The initial data import downloads ~25 GB and takes significant time. To skip the download on reinstall, pre-place the dump via: pct push <CTID> /path/to/photon-dump.jsonl.zst /opt/photon/photon-dump.jsonl.zst (the script checks the remote MD5 to validate freshness).",
+            "type": "warning"
+        },
+        {
+            "text": "For Dawarich integration, set PHOTON_API_HOST to http://<LXC-IP>:2322 in your Dawarich configuration.",
+            "type": "info"
+        }
+    ]
+}
